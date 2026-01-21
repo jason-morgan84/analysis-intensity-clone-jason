@@ -1,10 +1,11 @@
-
+/////////add property for minimal nuclear size and minimum clone size
+/////////output masks for debugging
 
 //methods for selecting region of interest in image
 //0 uses whole image
 //1 uses current top ROI
 //2 defines region based on presence of fluoresence in region_channel
-var region_method = 1
+var region_method = 2
 var region_channel = 1
 var region_threshold = 2
 var minimum_region_size = 100000
@@ -22,10 +23,12 @@ var clone_threshold_method = "Otsu"
 var analysis1_name = "PTEN"
 var analysis1_channel = 1
 var analysis1_background = 0
+var analysis1_background_radius = 50
 
 var analysis2_name = "None"
 var analysis2_channel = 3
 var analysis2_background = 0
+var analysis2_background_radius = 50
 
 var dapi_channel = 4
 var dapi_background_subtract = 0
@@ -41,19 +44,19 @@ close_windows = 0
 output_regions = 0
 
 //define output variables
-var analysis1_non_nuclear_GFP = 0
+var analysis1_clone_non_nuclear_intensity = 0
 var analysis1_non_nuclear_non_GFP = 0
-var analysis1_nuclear_GFP = 0
+var analysis1_clone_nuclear = 0
 var analysis1_nuclear_non_GFP = 0
-var analysis1_GFP = 0
-var analysis1_non_GFP = 0
+var analysis1_clone_intensity = 0
+var analysis1_non_clone_intensity = 0
 
-var analysis2_non_nuclear_GFP = 0
+var analysis2_clone_non_nuclear_intensity = 0
 var analysis2_non_nuclear_non_GFP = 0
-var analysis2_nuclear_GFP = 0
+var analysis2_clone_nuclear = 0
 var analysis2_nuclear_non_GFP = 0
-var analysis2_GFP = 0
-var analysis2_non_GFP = 0
+var analysis2_clone_intensity = 0
+var analysis2_non_clone_intensity = 0
 
 setBackgroundColor(255, 255, 255);
 setForegroundColor(0, 0, 0);
@@ -83,7 +86,7 @@ else if (z_stack_settings==1)
 //if selecting whole region, make the image binary and clear all
 if (region_method==0)
 {
-	duplicate_channel(name, 1,"Region");
+	duplicate_channel(name, 1,"region");
 	run("Make Binary", "background=Light calculate black");
 	run("Select All");
 	run("Clear");
@@ -94,7 +97,7 @@ if (region_method==0)
 //of interest and remove all ROIs
 else if (region_method==1)
 {
-	duplicate_channel(name, 1,"Region");
+	duplicate_channel(name, 1,"region");
 	run("Make Binary", "background=Light calculate black");
 	run("Select All");
 	run("Fill");
@@ -108,15 +111,24 @@ else if (region_method==1)
 //fluoresence present and fill holes
 else if (region_method==2)
 {
-	duplicate_channel(name, region_channel,"Region");
+	duplicate_channel(name, region_channel,"region");
 	run("Gaussian Blur...", "sigma=5");	
 	setThreshold(region_threshold, 255, "raw");
 	run("Convert to Mask");
 	run("Fill Holes");
 }
-//analyse particles to get ROIs for region to analyse for next section
-run("Analyze Particles...", "size="+minimum_region_size+"-Infinity pixel add");
 
+//analyse particles to get ROIs for region and clear z-stacked image outside this area
+run("Analyze Particles...", "size="+minimum_region_size+"-Infinity pixel add");
+selectWindow(name);
+roiManager("Deselect");
+roiManager("OR");
+setBackgroundColor(0, 0, 0);
+run("Clear Outside");
+run("Select None");
+
+roiManager("Deselect");
+roiManager("Delete");
 
 
 /******************************Mask clone regions************************************/
@@ -134,58 +146,29 @@ if (clone_background_subtract==1)
 setAutoThreshold(clone_threshold_method+" dark");
 run("Convert to Mask");
 
-//Remove clone areas outside the overall region of interest (defined by current ROIs)
-roiManager("Deselect");
-roiManager("OR");
-setBackgroundColor(0, 0, 0);
-run("Clear Outside");
-run("Select None");
-
-roiManager("Deselect");
-roiManager("Delete");
-/*
-duplicate_channel(name, analysis1_channel,analysis1_name);
-//run("Subtract Background...", "rolling=50 sliding");
-duplicate_channel(name, analysis2_channel,analysis2_name);
-//run("Subtract Background...", "rolling=50 sliding");
-
-*/
 /******************************Mask nuclei ************************************/
-duplicate_channel(name, dapi_channel,"Dapi");
-if (dapi_background_subtract==1)
-{
-	run("Subtract Background...", "rolling="+dapi_background_radius+" sliding");
-}
-
+//get DAPI channel and process
+duplicate_channel(name, dapi_channel,"dapi_non_clone_mask");
+if (dapi_background_subtract==1) run("Subtract Background...", "rolling="+dapi_background_radius+" sliding");
 run("Gaussian Blur...", "sigma=3");	
+
+//threshold processed image
 setAutoThreshold(dapi_threshold_method+" dark");
 run("Convert to Mask");
 
-selectWindow("Region");
-run("Analyze Particles...", "size=100000-Infinity pixel add");
-selectWindow("Dapi");
-roiManager("Deselect");
-roiManager("OR");
-run("Clear Outside");
-run("Select None");
-/*
+run("Duplicate...", "title=dapi_clone_mask");
 
-roiManager("Deselect");
-roiManager("Delete");
-
-run("Duplicate...", "title=Dapi_GFP");
-
-//mask non-GFP regions for GFP dapi measurements
-selectWindow("GFP_mask");
+//get mask of dapi positive regions within clones
+selectWindow("clone_mask");
 run("Analyze Particles...", "size=500-Infinity pixel add");
-selectWindow("Dapi_GFP");
+selectWindow("dapi_clone_mask");
 roiManager("Deselect");
 roiManager("OR");
 run("Clear Outside");
 run("Select None");
 
-//mask GFP regions for non-GFP dapi measurements
-selectWindow("Dapi");
+//get mask of dapi positive regions outside clones
+selectWindow("dapi_non_clone_mask");
 roiManager("Deselect");
 roiManager("OR");
 run("Clear");
@@ -194,50 +177,102 @@ run("Select None");
 roiManager("Deselect");
 roiManager("Delete");
 
-//get nucleii (dapi+) in GFP+ region and measure
-selectWindow("Dapi_GFP");
-run("Analyze Particles...", "size=50-Infinity pixel exclude add");
+/******************************Measure intensity in each region************************************/
 
+//duplicate and process channels for analysis
+duplicate_channel(name, analysis1_channel,analysis1_name);
+if (analysis1_background==1) run("Subtract Background...", "rolling="+analysis1_background_radius+" sliding");
+
+duplicate_channel(name, analysis2_channel,analysis2_name);
+if (analysis2_background==1) run("Subtract Background...", "rolling="+analysis2_background_radius+" sliding");
+
+//inside clones overall - measures average intensity over all clone regions, in each channel
+selectWindow("clone_mask");
+run("Analyze Particles...", "size=500-Infinity pixel add");
 selectWindow(analysis1_name);
 roiManager("Deselect");
 roiManager("OR");
 getStatistics(area,mean);
-print(analysis1_name+" GFP nuclear,"+d2s(mean,3));
+analysis1_clone_intensity=mean;
 run("Select None");
 
 selectWindow(analysis2_name);
 roiManager("Deselect");
 roiManager("OR");
 getStatistics(area,mean);
-print(analysis2_name+" GFP nuclear,"+d2s(mean,3));
+analysis2_clone_intensity=mean;
+run("Select None");
+
+//inside clones non-dapi - measures average intensity within clones excluding dapi-positive regions
+selectWindow("dapi_clone_mask");
+run("Analyze Particles...", "size=500-Infinity pixel add");
+
+selectWindow(analysis1_name);
+roiManager("Deselect");
+roiManager("XOR");
+getStatistics(area,mean);
+analysis1_clone_intensity=mean;
+run("Select None");
+
+selectWindow(analysis2_name);
+roiManager("Deselect");
+roiManager("XOR");
+getStatistics(area,mean);
+analysis1_clone_intensity=mean;
 run("Select None");
 
 roiManager("Deselect");
 roiManager("Delete");
 
-//get nucleii (dapi+) in GFP- region and measure
-selectWindow("Dapi");
-run("Analyze Particles...", "size=50-Infinity pixel add");
+//inside clones dapi - uses mask of dapi within clones to measure average intensity of each channel
+selectWindow("dapi_clone_mask");
+run("Analyze Particles...", "size=500-Infinity pixel add");
 
 selectWindow(analysis1_name);
 roiManager("Deselect");
 roiManager("OR");
 getStatistics(area,mean);
-print(analysis1_name+" Non-GFP nuclear,"+d2s(mean,3));
+analysis1_clone_nuclear=mean;
+run("Select None");
 
 selectWindow(analysis2_name);
 roiManager("Deselect");
 roiManager("OR");
 getStatistics(area,mean);
-print(analysis2_name+" Non-GFP nuclear,"+d2s(mean,3));
+analysis2_clone_nuclear=mean;
+run("Select None");
 
+roiManager("Deselect");
+roiManager("Delete");
 
+//outside clones overall
+selectWindow("region");
+run("Analyze Particles...", "size="+minimum_region_size+"-Infinity pixel add");
+selectWindow(analysis1_name);
+roiManager("Deselect");
+roiManager("XOR");
+getStatistics(area,mean);
+analysis1_clone_non_nuclear_intensity=mean;
+run("Select None");
+
+selectWindow(analysis2_name);
+roiManager("Deselect");
+roiManager("XOR");
+getStatistics(area,mean);
+analysis2_clone_non_nuclear_intensity=mean;
+run("Select None");
+
+//outside clones non-dapi
+
+//outside clones dapi
+
+/*
 roiManager("Deselect");
 roiManager("Delete");
 
 if (close_windows==1)
 {
-	close("Region")
+	close("region")
 	close(analysis1_name)
 	close(analysis2_name)
 	close("GFP_mask")
