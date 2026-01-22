@@ -1,4 +1,3 @@
-/////////add property for minimal nuclear size and minimum clone size
 /////////output masks for debugging
 
 //methods for selecting region of interest in image
@@ -6,27 +5,29 @@
 //1 uses current top ROI
 //2 defines region based on presence of fluoresence in region_channel
 var region_method = 2
-var region_channel = 1
-var region_threshold = 2
+var region_channel = 3
+var region_threshold = 1
 var minimum_region_size = 100000
+var minimum_clone_size = 500
+var minimum_nuclear_size = 500
 
 //settings for dealing with z-stacks.
 //0 means use current slice (either single slice image or use chosen slice from z-stack)
 //1 means z-project
-var z_stack_settings = 1
+var z_stack_settings = 0
 
 var clone_channel = 2
 var clone_background_subtract = 0
 var clone_background_radius = 50
 var clone_threshold_method = "Otsu"
 
-var analysis1_name = "PTEN"
+var analysis1_name = "analysis1"
 var analysis1_channel = 1
 var analysis1_background = 0
 var analysis1_background_radius = 50
 
-var analysis2_name = "None"
-var analysis2_channel = 3
+var analysis2_name = "analysis2"
+var analysis2_channel = 1
 var analysis2_background = 0
 var analysis2_background_radius = 50
 
@@ -38,23 +39,25 @@ var dapi_threshold_method = "Huang"
 //end of analysis settings
 
 //close windows at end (0 leaves windows open, 1 leaves original image open, 2 closes all associated images
-close_windows = 0
+close_windows = 1
 
 //For debugging purposes, output windows showing each combination of regions used for quantificaiton
 output_regions = 0
+//output text to log window in wide or long formats (lower case)
+output_format = "wide"
 
 //define output variables
 var analysis1_clone_non_nuclear_intensity = 0
-var analysis1_non_nuclear_non_GFP = 0
-var analysis1_clone_nuclear = 0
-var analysis1_nuclear_non_GFP = 0
+var analysis1_non_clone_non_nuclear_intensity = 0
+var analysis1_clone_nuclear_intensity = 0
+var analysis1_non_clone_nuclear_intensity = 0
 var analysis1_clone_intensity = 0
 var analysis1_non_clone_intensity = 0
 
 var analysis2_clone_non_nuclear_intensity = 0
-var analysis2_non_nuclear_non_GFP = 0
-var analysis2_clone_nuclear = 0
-var analysis2_nuclear_non_GFP = 0
+var analysis2_non_clone_non_nuclear_intensity = 0
+var analysis2_clone_nuclear_intensity = 0
+var analysis2_non_clone_nuclear_intensity = 0
 var analysis2_clone_intensity = 0
 var analysis2_non_clone_intensity = 0
 
@@ -63,7 +66,7 @@ setForegroundColor(0, 0, 0);
 
 //get image name and print to log window for output
 image=getTitle();
-print("-"+image);
+
 
 /******************************process slices of interest*************************************/
 //if a single slice is required, duplicate currently selected slice for processing
@@ -160,7 +163,7 @@ run("Duplicate...", "title=dapi_clone_mask");
 
 //get mask of dapi positive regions within clones
 selectWindow("clone_mask");
-run("Analyze Particles...", "size=500-Infinity pixel add");
+run("Analyze Particles...", "size=minimum_clone_size-Infinity pixel add");
 selectWindow("dapi_clone_mask");
 roiManager("Deselect");
 roiManager("OR");
@@ -188,7 +191,7 @@ if (analysis2_background==1) run("Subtract Background...", "rolling="+analysis2_
 
 //inside clones overall - measures average intensity over all clone regions, in each channel
 selectWindow("clone_mask");
-run("Analyze Particles...", "size=500-Infinity pixel add");
+run("Analyze Particles...", "size=minimum_clone_size-Infinity pixel add");
 selectWindow(analysis1_name);
 roiManager("Deselect");
 roiManager("OR");
@@ -205,49 +208,8 @@ run("Select None");
 
 //inside clones non-dapi - measures average intensity within clones excluding dapi-positive regions
 selectWindow("dapi_clone_mask");
-run("Analyze Particles...", "size=500-Infinity pixel add");
+run("Analyze Particles...", "size=minimum_nuclear_size-Infinity pixel add");
 
-selectWindow(analysis1_name);
-roiManager("Deselect");
-roiManager("XOR");
-getStatistics(area,mean);
-analysis1_clone_intensity=mean;
-run("Select None");
-
-selectWindow(analysis2_name);
-roiManager("Deselect");
-roiManager("XOR");
-getStatistics(area,mean);
-analysis1_clone_intensity=mean;
-run("Select None");
-
-roiManager("Deselect");
-roiManager("Delete");
-
-//inside clones dapi - uses mask of dapi within clones to measure average intensity of each channel
-selectWindow("dapi_clone_mask");
-run("Analyze Particles...", "size=500-Infinity pixel add");
-
-selectWindow(analysis1_name);
-roiManager("Deselect");
-roiManager("OR");
-getStatistics(area,mean);
-analysis1_clone_nuclear=mean;
-run("Select None");
-
-selectWindow(analysis2_name);
-roiManager("Deselect");
-roiManager("OR");
-getStatistics(area,mean);
-analysis2_clone_nuclear=mean;
-run("Select None");
-
-roiManager("Deselect");
-roiManager("Delete");
-
-//outside clones overall
-selectWindow("region");
-run("Analyze Particles...", "size="+minimum_region_size+"-Infinity pixel add");
 selectWindow(analysis1_name);
 roiManager("Deselect");
 roiManager("XOR");
@@ -262,31 +224,143 @@ getStatistics(area,mean);
 analysis2_clone_non_nuclear_intensity=mean;
 run("Select None");
 
-//outside clones non-dapi
-
-//outside clones dapi
-
-/*
 roiManager("Deselect");
 roiManager("Delete");
 
+//inside clones dapi - uses mask of dapi within clones to measure average intensity of each channel
+selectWindow("dapi_clone_mask");
+run("Analyze Particles...", "size=minimum_nuclear_size-Infinity pixel add");
+
+selectWindow(analysis1_name);
+roiManager("Deselect");
+roiManager("OR");
+getStatistics(area,mean);
+analysis1_clone_nuclear_intensity=mean;
+run("Select None");
+
+selectWindow(analysis2_name);
+roiManager("Deselect");
+roiManager("OR");
+getStatistics(area,mean);
+analysis2_clone_nuclear_intensity=mean;
+run("Select None");
+
+roiManager("Deselect");
+roiManager("Delete");
+
+//outside clones overall
+selectWindow("region");
+run("Analyze Particles...", "size="+minimum_region_size+"-Infinity pixel add");
+selectWindow("clone_mask");
+run("Analyze Particles...", "size=minimum_clone_size-Infinity pixel add");
+
+selectWindow(analysis1_name);
+roiManager("Deselect");
+roiManager("XOR");
+getStatistics(area,mean);
+analysis1_non_clone_intensity=mean;
+run("Select None");
+
+selectWindow(analysis2_name);
+roiManager("Deselect");
+roiManager("XOR");
+getStatistics(area,mean);
+analysis2_non_clone_intensity=mean;
+run("Select None");
+
+roiManager("Deselect");
+roiManager("Delete");
+
+//outside clones dapi
+selectWindow("dapi_non_clone_mask");
+run("Analyze Particles...", "size=minimum_nuclear_size-Infinity pixel add");
+
+selectWindow(analysis1_name);
+roiManager("Deselect");
+roiManager("OR");
+getStatistics(area,mean);
+analysis1_non_clone_nuclear_intensity=mean;
+run("Select None");
+
+selectWindow(analysis2_name);
+roiManager("Deselect");
+roiManager("OR");
+getStatistics(area,mean);
+analysis2_non_clone_nuclear_intensity=mean;
+run("Select None");
+
+
+//outside clones non-dapi
+selectWindow("clone_mask");
+roiManager("Deselect");
+roiManager("OR");
+setForegroundColor(255, 255, 255);
+run("Fill");
+run("Select None");
+roiManager("Deselect");
+roiManager("Delete");
+
+run("Analyze Particles...", "size=minimum_nuclear_size-Infinity pixel add");
+selectWindow("region");
+run("Analyze Particles...", "size="+minimum_region_size+"-Infinity pixel add");
+
+
+
+selectWindow(analysis1_name);
+roiManager("Deselect");
+roiManager("XOR");
+getStatistics(area,mean);
+analysis1_non_clone_non_nuclear_intensity=mean;
+run("Select None");
+
+selectWindow(analysis2_name);
+roiManager("Deselect");
+roiManager("XOR");
+getStatistics(area,mean);
+analysis2_non_clone_non_nuclear_intensity=mean;
+run("Select None");
+
+roiManager("Deselect");
+roiManager("Delete");
+
+if (toLowerCase(output_format)=="wide")
+{
+	print("image,analysis_name,clone_intensity,non_clone_intensity,clone_nuclear_intensity,non_clone_nuclear_intensity,clone_non_nuclear_intensity,non_clone_non_nuclear_intensity");
+	print(image+","+analysis1_name+","+analysis1_clone_intensity+","+analysis1_non_clone_intensity+","+analysis1_clone_nuclear_intensity+","+analysis1_non_clone_nuclear_intensity+","+analysis1_clone_non_nuclear_intensity+","+analysis1_non_clone_non_nuclear_intensity);
+	print(image+","+analysis2_name+","+analysis2_clone_intensity+","+analysis2_non_clone_intensity+","+analysis2_clone_nuclear_intensity+","+analysis2_non_clone_nuclear_intensity+","+analysis2_clone_non_nuclear_intensity+","+analysis2_non_clone_non_nuclear_intensity);
+}
+else if (toLowerCase(output_format)=="long")
+{
+	print(image+","+analysis1_name+","+"clone_intensity"+","+analysis1_clone_intensity);
+	print(image+","+analysis1_name+","+"non_clone_intensity"+","+analysis1_non_clone_intensity);
+	print(image+","+analysis1_name+","+"clone_nuclear_intensity"+","+analysis1_clone_nuclear_intensity);
+	print(image+","+analysis1_name+","+"non_clone_nuclear_intensity"+","+analysis1_non_clone_nuclear_intensity);
+	print(image+","+analysis1_name+","+"clone_non_nuclear_intensity"+","+analysis1_clone_non_nuclear_intensity);
+	print(image+","+analysis1_name+","+"non_clone_non_nuclear_intensity"+","+analysis1_non_clone_non_nuclear_intensity);
+	print(image+","+analysis2_name+","+"clone_intensity"+","+analysis2_clone_intensity);
+	print(image+","+analysis2_name+","+"non_clone_intensity"+","+analysis2_non_clone_intensity);
+	print(image+","+analysis2_name+","+"clone_nuclear_intensity"+","+analysis2_clone_nuclear_intensity);
+	print(image+","+analysis2_name+","+"non_clone_nuclear_intensity"+","+analysis2_non_clone_nuclear_intensity);
+	print(image+","+analysis2_name+","+"clone_non_nuclear_intensity"+","+analysis2_clone_non_nuclear_intensity);
+	print(image+","+analysis2_name+","+"non_clone_non_nuclear_intensity"+","+analysis2_non_clone_non_nuclear_intensity);
+}
 if (close_windows==1)
 {
-	close("region")
-	close(analysis1_name)
-	close(analysis2_name)
-	close("GFP_mask")
-	close("Dapi")
-	close("Dapi_GFP")
-	close(name)
+	close("region");
+	close(analysis1_name);
+	close(analysis2_name);
+	close("clone_mask");
+	close("dapi_clone_mask");
+	close("dapi_non_clone_mask");
+	close(name);
 }
 
 if (close_windows==2)
 {
-	close(image)
+	close(image);
 }
 
-*/
+
 function duplicate_channel(image,channel,title)
 {
 	selectWindow(image);
